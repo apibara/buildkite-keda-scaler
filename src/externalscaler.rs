@@ -2,6 +2,7 @@ use crate::agent_api::{BuildkiteMetrics, Metrics};
 
 use proto::external_scaler_server::{ExternalScaler, ExternalScalerServer};
 use tonic::{codec::Streaming, Request, Response, Status};
+use tracing::instrument;
 
 use self::proto::{
     GetMetricSpecResponse, GetMetricsRequest, GetMetricsResponse, IsActiveResponse, MetricSpec,
@@ -31,6 +32,7 @@ impl BuildkiteScaler {
 #[tonic::async_trait]
 impl ExternalScaler for BuildkiteScaler {
     /// Returns true if the number of jobs waiting in the queue is greater than zero.
+    #[instrument(skip_all, err(Debug))]
     async fn is_active(
         &self,
         request: Request<ScaledObjectRef>,
@@ -60,6 +62,7 @@ impl ExternalScaler for BuildkiteScaler {
         Err(Status::unimplemented("scaler is pull only"))
     }
 
+    #[instrument(skip_all, err(Debug))]
     async fn get_metric_spec(
         &self,
         request: Request<ScaledObjectRef>,
@@ -81,6 +84,7 @@ impl ExternalScaler for BuildkiteScaler {
         Ok(Response::new(response))
     }
 
+    #[instrument(skip_all, err(Debug))]
     async fn get_metrics(
         &self,
         request: Request<GetMetricsRequest>,

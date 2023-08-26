@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 /// Buildkite metrics API client.
 #[derive(Debug)]
@@ -65,6 +66,7 @@ impl BuildkiteMetrics {
     }
 
     /// Get metrics from the Buildkite API.
+    #[instrument(skip(self), err(Debug))]
     pub async fn get(&self) -> Result<Metrics> {
         let url = format!("{}/v3/metrics", self.base_url);
         let response = self
