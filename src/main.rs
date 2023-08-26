@@ -1,12 +1,9 @@
-mod agent_api;
-mod externalscaler;
-
 use clap::Parser;
 use color_eyre::eyre::Result;
 use tonic::transport::Server;
 use tracing::info;
 
-use crate::{agent_api::BuildkiteMetrics, externalscaler::BuildkiteScaler};
+use buildkite_keda_scaler::{BuildkiteMetrics, BuildkiteScaler};
 
 static BUILDKITE_AGENT_API_URL: &str = "https://agent.buildkite.com";
 
