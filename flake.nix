@@ -11,7 +11,6 @@
     };
     flake-utils = {
       url = "github:numtide/flake-utils";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -29,7 +28,13 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         commonArgs = {
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          src = pkgs.lib.cleanSourceWith {
+            src = craneLib.path ./.;
+            filter = path: type:
+              (builtins.match ".*proto$" path != null) 
+              || (craneLib.filterCargoSources path type);
+          };
+
           nativeBuildInputs = with pkgs; [
             clang
             llvmPackages.libclang.lib
