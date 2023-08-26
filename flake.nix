@@ -31,7 +31,7 @@
           src = pkgs.lib.cleanSourceWith {
             src = craneLib.path ./.;
             filter = path: type:
-              (builtins.match ".*proto$" path != null) 
+              (builtins.match ".*proto$" path != null)
               || (craneLib.filterCargoSources path type);
           };
 
@@ -55,13 +55,33 @@
         bin = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
+
+        image = pkgs.dockerTools.buildImage {
+          name = "buildkite-keda-scaler";
+          tag = "latest";
+          created = "now";
+          copyToRoot = with pkgs.dockerTools; [
+            usrBinEnv
+            binSh
+            caCertificates
+            bin
+          ];
+          config = {
+            Entrypoint = [
+              "${bin}/bin/buildkite-keda-scaler"
+            ];
+            ExposedPorts = {
+              "9090/tcp" = { };
+            };
+          };
+        };
       in
       {
         formatter = pkgs.nixpkgs-fmt;
 
         packages = {
           default = bin;
-          buildkite-keda-scaler = bin;
+          image = image;
         };
 
         devShells = {
