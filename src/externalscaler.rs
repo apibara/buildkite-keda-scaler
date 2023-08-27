@@ -2,7 +2,7 @@ use crate::agent_api::{BuildkiteMetrics, Metrics};
 
 use proto::external_scaler_server::{ExternalScaler, ExternalScalerServer};
 use tonic::{codec::Streaming, Request, Response, Status};
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use self::proto::{
     GetMetricSpecResponse, GetMetricsRequest, GetMetricsResponse, IsActiveResponse, MetricSpec,
@@ -40,14 +40,20 @@ impl ExternalScaler for BuildkiteScaler {
         let request = request.into_inner();
 
         let queue = request.require_queue()?;
-
         let target_waiting_jobs = request.target_waiting_jobs()?;
 
         let metrics = self.client.get().await.map_err(IntoStatus::into_status)?;
-        let waiting = metrics.job_queue_waiting(&queue);
+        let runnable = metrics.job_queue_runnable(&queue);
+
+        info!(
+            queue = queue,
+            runnable = runnable,
+            target_waiting_jobs = target_waiting_jobs,
+            "handle is_active"
+        );
 
         let response = IsActiveResponse {
-            result: waiting > target_waiting_jobs,
+            result: runnable >= target_waiting_jobs,
         };
 
         Ok(Response::new(response))
@@ -77,6 +83,12 @@ impl ExternalScaler for BuildkiteScaler {
             target_size: target_waiting_jobs,
         };
 
+        info!(
+            queue = queue,
+            target_waiting_jobs = target_waiting_jobs,
+            "handle get_metric_spec"
+        );
+
         let response = GetMetricSpecResponse {
             metric_specs: vec![metric_spec],
         };
@@ -97,12 +109,14 @@ impl ExternalScaler for BuildkiteScaler {
             .require_queue()?;
 
         let metrics = self.client.get().await.map_err(IntoStatus::into_status)?;
-        let waiting = metrics.job_queue_waiting(&queue);
+        let runnable = metrics.job_queue_runnable(&queue);
 
         let metric = MetricValue {
             metric_name: metric_name(&queue),
-            metric_value: waiting,
+            metric_value: runnable,
         };
+
+        info!(queue = queue, runnable = runnable, "handle get_metrics");
 
         let response = GetMetricsResponse {
             metric_values: vec![metric],
@@ -119,6 +133,11 @@ trait ScaledObjectRefExt {
 
 trait MetricsExt {
     fn job_queue_waiting(&self, queue: &str) -> i64;
+    fn job_queue_scheduled(&self, queue: &str) -> i64;
+
+    fn job_queue_runnable(&self, queue: &str) -> i64 {
+        self.job_queue_waiting(queue) + self.job_queue_scheduled(queue)
+    }
 }
 
 trait IntoStatus {
@@ -154,6 +173,12 @@ impl MetricsExt for Metrics {
     fn job_queue_waiting(&self, queue: &str) -> i64 {
         self.get_job_queue(queue)
             .map(|queue| queue.waiting)
+            .unwrap_or(0)
+    }
+
+    fn job_queue_scheduled(&self, queue: &str) -> i64 {
+        self.get_job_queue(queue)
+            .map(|queue| queue.scheduled)
             .unwrap_or(0)
     }
 }
