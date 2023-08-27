@@ -1,0 +1,28 @@
+steps:
+- label: "Build dependencies"
+  command: nix build .#deps
+
+- wait
+
+- label: "Run checks"
+  command: nix flake check
+
+- wait
+
+- label: "Build binary"
+  command: nix build
+
+- wait
+
+- label: "Build Docker image"
+  commands:
+  - nix build .#image
+  - mv result buildkite-keda-scaler.tar.gz
+  - buildkite-agent artifact upload buildkite-keda-scaler.tar.gz
+
+- wait
+
+- label: "Publish Docker image"
+  commands: 
+  - buildkite-agent artifact download buildkite-keda-scaler.tar.gz .
+  - nix develop .#ci -c ci-upload-image buildkite-keda-scaler.tar.gz "quay.io/apibara/buildkite-keda-scaler" "dev"
