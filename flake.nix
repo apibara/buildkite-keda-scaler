@@ -12,9 +12,13 @@
     flake-utils = {
       url = "github:numtide/flake-utils";
     };
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, crane, flake-utils, ... }:
+  outputs = { self, nixpkgs, rust-overlay, crane, flake-utils, advisory-db, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -27,13 +31,15 @@
         };
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        src = pkgs.lib.cleanSourceWith {
+          src = craneLib.path ./.;
+          filter = path: type:
+            (builtins.match ".*proto$" path != null)
+            || (craneLib.filterCargoSources path type);
+        };
+
         commonArgs = {
-          src = pkgs.lib.cleanSourceWith {
-            src = craneLib.path ./.;
-            filter = path: type:
-              (builtins.match ".*proto$" path != null)
-              || (craneLib.filterCargoSources path type);
-          };
+          inherit src;
 
           nativeBuildInputs = with pkgs; [
             clang
@@ -75,17 +81,80 @@
             };
           };
         };
+
+        clippy = craneLib.cargoClippy (commonArgs // {
+          inherit cargoArtifacts;
+        });
+
+        format = craneLib.cargoFmt {
+          inherit src;
+        };
+
+        audit = craneLib.cargoAudit {
+          inherit src advisory-db;
+        };
+
+        ciUploadImage = pkgs.writeShellApplication {
+          name = "ci-upload-image";
+          runtimeInputs = with pkgs; [
+            skopeo
+          ];
+          text = ''
+            function dry_run() {
+              if [[ "''${DRY_RUN:-false}" == "true" ]]; then
+                echo "[dry-run] $*"
+              else
+                "$@"
+              fi
+            }
+
+            archive="$1"
+            dest="$2"
+            tag="$3"
+            archs=("x86_64")
+
+            echo "Skopeo version: $(skopeo --version)"
+            echo "Uploading image: $archive to $dest"
+
+            if [[ ! -f "$archive" ]]; then
+              echo "Image archive doesn't exist: $archive"
+              exit 1
+            fi
+
+            images=()
+            for arch in "''${archs[@]}"; do
+              echo "Uploading image for $arch"
+              dry_run skopeo --insecure-policy copy "docker-archive:$archive" "docker://$dest:$tag-$arch"
+              images+=("$dest:$tag-$arch")
+            done
+
+            dry_run buildah manifest create "$dest:$tag" "''${images[@]}"
+            dry_run buildah manifest push --all "$dest:$tag"
+          '';
+        };
       in
       {
         formatter = pkgs.nixpkgs-fmt;
 
+        checks = {
+          inherit clippy format audit;
+        };
+
         packages = {
           default = bin;
+          deps = cargoArtifacts;
           image = image;
         };
 
         devShells = {
           default = pkgs.mkShell (commonArgs // { });
+          ci = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              buildah
+              skopeo
+              ciUploadImage
+            ];
+          };
         };
       }
     );
